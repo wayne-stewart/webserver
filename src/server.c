@@ -2,24 +2,6 @@
 	Server
 */
 
-typedef struct HttpResponse {
-	int status_code;
-	HttpHeaders headers;
-} HttpResponse;
-
-typedef struct HttpRequest {
-	const char* method;
-	const char* uri;
-	const char* http_version;
-} HttpRequest;
-
-typedef struct HttpContext {
-	Buffer read_buffer;
-	Buffer write_buffer;
-	HttpRequest request;
-	HttpResponse response;
-	int client_fd;
-} HttpContext;
 
 typedef struct CompiledRegex {
 	regex_t request_line;
@@ -36,55 +18,11 @@ typedef struct MiddlewareHandler {
 } MiddlewareHandler;
 
 typedef struct ServerState {
-	int server_fd;
+	s32 server_fd;
+	s32 running;
 	CompiledRegex regex;
 	MiddlewareHandler* middleware;
 } ServerState;
-
-void send_file(HttpContext* context, int file_fd, const char* file_path)
-{
-	struct stat file_stat;
-	fstat(file_fd, &file_stat);
-	off_t file_size = file_stat.st_size;
-	context->response.status_code = 200;
-	context->response.headers.content_length = file_size;
-	context->response.headers.content_type = http_get_content_type_from_file_path(file_path);
-	http_write_headers(
-		&context->write_buffer, 
-		context->response.status_code, 
-		&context->response.headers);
-	Buffer* buffer = &context->write_buffer;
-	if (buffer->length > 0) {
-		send(context->client_fd, buffer->data, buffer->length, 0);
-		buffer->length = 0;
-	}
-	while((buffer->length = read(file_fd, buffer->data, buffer->size)) > 0) {
-		send(context->client_fd, buffer->data, buffer->length, 0);
-	}
-}
-
-void send_404(HttpContext* context)
-{
-	context->response.status_code = 404;
-	context->response.headers.content_length = 0;
-	context->response.headers.content_type = CONTENT_TYPE_PLAIN;
-	http_write_headers(
-		&context->write_buffer,
-		context->response.status_code, 
-		&context->response.headers);
-	send(context->client_fd, context->write_buffer.data, context->write_buffer.length, 0);
-}
-
-void send_302(HttpContext* context, u8* path)
-{
-	context->response.status_code = 302;
-	context->response.headers.location = path;
-	http_write_headers(
-		&context->write_buffer, 
-		context->response.status_code, 
-		&context->response.headers);
-	send(context->client_fd, context->write_buffer.data, context->write_buffer.length, 0);
-}
 
 int read_request(ServerState* state, HttpContext* context)
 {
@@ -108,19 +46,19 @@ int read_request(ServerState* state, HttpContext* context)
 	return 1;
 }
 
-void Server_Init(ServerState* state) {
+void server_init(ServerState* state) {
 	regcomp(&state->regex.request_line, "^([A-Z]+) (/[^ ]*) HTTP/1.1\r\n", REG_EXTENDED);
 	regcomp(&state->regex.uri_double_dots, "\\.\\.", REG_EXTENDED);
 	regcomp(&state->regex.uri_valid_chars, "^[0-9a-zA-Z/_\\.-]+$", REG_EXTENDED);
 }
 
-void Server_Destroy(ServerState* state) {
+void server_destroy(ServerState* state) {
 	if (state->server_fd) {
 		close(state->server_fd);
 	}
 }
 
-void Server_AddMiddleware(ServerState* state, MiddlewareHandler* handler) {
+void server_add_middleware(ServerState* state, MiddlewareHandler* handler) {
 	if (state->middleware) {
 		MiddlewareHandler* parent = state->middleware;
 		while (parent->next) parent = parent->next;
@@ -130,26 +68,13 @@ void Server_AddMiddleware(ServerState* state, MiddlewareHandler* handler) {
 	}
 }
 
-volatile sig_atomic_t server_is_running = 1;
-
-static void Server_SignalCatch(int signo) {
-	if (signo == SIGINT) {
-		server_is_running = 0;
-	}
-}
-
-void Server_Run(ServerState* state) {
-
-	/*if (signal(SIGINT, Server_SignalCatch) == SIG_ERR) {
-		perror("Unable to set signal handler!");
-		return;
-	}*/
-
+s32 server_bind(ServerState* state) {
+	
 	struct sockaddr_in server_addr = {0};
 
 	if ((state->server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
 		perror("create socket failed");
-		return;
+		return 1;
 	}
 
 	server_addr.sin_family = AF_INET;
@@ -160,26 +85,38 @@ void Server_Run(ServerState* state) {
 		(struct sockaddr *)&server_addr,
 		sizeof(server_addr)) < 0) {
 		perror("socket bind failed");
-		return;
+		return 1;
 	}
 
+	return 0;
+}
+
+s32 server_listen(ServerState* state) {
+	
 	if (listen(state->server_fd, 10) < 0) {
 		perror("listening to socket failed");
-		return;
+		return 1;
 	}
+	
 	printf("listening on port: %d\n", PORT);
+	return 0;
+}
 
-	while(server_is_running) {
+void server_accept(ServerState* state) {
+
+	state->running = 1;
+
+	while(state->running) {
 		struct sockaddr_in client_addr = {0};
 		socklen_t client_addr_len = sizeof(client_addr);
 
-		HttpContext context = {0};
+		s32 client_fd = accept(state->server_fd, (struct sockaddr*)&client_addr, &client_addr_len);
+		if (client_fd < 0) continue;
+		
+		HttpContext context = { .client_fd = client_fd };
 		buffer_init(&context.read_buffer);
 		buffer_init(&context.write_buffer);
 
-		context.client_fd = accept(state->server_fd, (struct sockaddr*)&client_addr, &client_addr_len);
-		if (context.client_fd < 0) { perror("accept failed"); goto CLEANUP; }
-		
 		if (read_request(state, &context) != 1) goto CLEANUP;
 		
 		state->middleware->run(state, &context, state->middleware->next);
@@ -195,6 +132,15 @@ void Server_Run(ServerState* state) {
 			close(context.client_fd);
 		}
 	}
+}
+
+void server_run(ServerState* state) {
+
+	if (server_bind(state)) return;
+
+	if (server_listen(state)) return;
+	
+	server_accept(state);
 }
 
 

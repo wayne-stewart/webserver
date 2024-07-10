@@ -25,30 +25,32 @@
 #define PORT 8080
 #define BUFFER_SIZE 4084 /* 4096 - 12 ( 3 u32 integers ) */
 
-#define u8 unsigned char
 #define u32 uint32_t
-#define ARRAY_SIZE(array_name) (sizeof(array_name) / sizeof(array_name[0]))
+#define s32 int32_t
+#define ARRAY_SIZE(array_name) ((s32)(sizeof(array_name) / sizeof(array_name[0])))
 
 #include "http/content_types.c"
 #include "http/status_codes.c"
 #include "http/headers.c"
+#include "http/context.c"
+#include "http/send.c"
 #include "server.c"
 #include "middleware/error_handler.c"
 #include "middleware/static_file_handler.c"
 
-int main(int argc, char **argv)
+int main() //int argc, char **argv)
 {
 	ServerState state = {0};
-	Server_Init(&state);
+	server_init(&state);
 
 	MiddlewareHandler error_middleware= { .run = middleware_error_handler };
-	Server_AddMiddleware(&state, &error_middleware);
+	server_add_middleware(&state, &error_middleware);
 
 	MiddlewareHandler static_file_middleware = { .run = middleware_static_file_handler };
-	Server_AddMiddleware(&state, &static_file_middleware);
+	server_add_middleware(&state, &static_file_middleware);
 
-	Server_Run(&state);
-	Server_Destroy(&state);
+	server_run(&state);
+	server_destroy(&state);
 	
 	return 0;
 }

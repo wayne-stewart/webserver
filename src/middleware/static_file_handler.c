@@ -7,10 +7,10 @@
  * return value is a file descriptor.
  * return -1 if file cannot be found.
  * return -2 if a 302 should be sent with appended / */
-int middleware_static_file_try_open(HttpContext* context, u8* path_buffer, u32 path_buffer_length) {
+int middleware_static_file_try_open(HttpContext* context, char* path_buffer, s32 path_buffer_length) {
 		
-	int uri_length = strlen(context->request.uri);
-	int path_length = 0;
+	s32 uri_length = strlen(context->request.uri);
+	s32 path_length = 0;
 
 	// if the final character is a slash try to open
 	// the default index.html file in the directory
@@ -27,7 +27,7 @@ int middleware_static_file_try_open(HttpContext* context, u8* path_buffer, u32 p
 
 	// tolower all characters in the path
 	// all served files should be lower case
-	for(int i = 0; path_buffer[i] != '\0'; i++) {
+	for(s32 i = 0; path_buffer[i] != '\0'; i++) {
 		path_buffer[i] = tolower(path_buffer[i]);
 	}
 
@@ -54,12 +54,12 @@ int middleware_static_file_try_open(HttpContext* context, u8* path_buffer, u32 p
 void middleware_static_file_serve(HttpContext* context)
 {
 	char path_buffer[1024] = {0};
-	u32 path_length = ARRAY_SIZE(path_buffer);
-	u32 path_length_minus_2 = ARRAY_SIZE(path_buffer) - 2;
-	u32 path_length_minus_1 = ARRAY_SIZE(path_buffer) - 1;
+	s32 path_length = ARRAY_SIZE(path_buffer);
+	s32 path_length_minus_2 = ARRAY_SIZE(path_buffer) - 2;
+	s32 path_length_minus_1 = ARRAY_SIZE(path_buffer) - 1;
 
 	// -2 on the path buffer to make sure there is room for / and a trailing 0
-	int file_fd = middleware_static_file_try_open(context, path_buffer, path_length_minus_2);
+	s32 file_fd = middleware_static_file_try_open(context, path_buffer, path_length_minus_2);
 	
 	if (file_fd == -1) { 
 		send_404(context);
