@@ -19,18 +19,18 @@ typedef struct MiddlewareHandler {
 } MiddlewareHandler;
 
 typedef struct ServerState {
-	s32 server_fd;
-	s32 running;
+	i32 server_fd;
+	i32 running;
 	CompiledRegex regex;
 	MiddlewareHandler* middleware;
 } ServerState;
 
-s32 read_request(ServerState* state, HttpContext* context)
+i32 read_request(ServerState* state, HttpContext* context)
 {
-	s32 eoh_found = 0;
+	i32 eoh_found = 0;
 	while(context->read_buffer.length < context->read_buffer.size && eoh_found == 0) {
 
-		s32 recv_result = recv(
+		i32 recv_result = recv(
 			context->client_fd, 
 			context->read_buffer.data + context->read_buffer.length, 
 			context->read_buffer.size - context->read_buffer.length, 
@@ -119,7 +119,7 @@ void server_add_middleware(ServerState* state, MiddlewareHandler* handler) {
 	}
 }
 
-s32 server_bind(ServerState* state) {
+i32 server_bind(ServerState* state) {
 	
 	struct sockaddr_in server_addr = {0};
 
@@ -142,7 +142,7 @@ s32 server_bind(ServerState* state) {
 	return 0;
 }
 
-s32 server_listen(ServerState* state) {
+i32 server_listen(ServerState* state) {
 	
 	if (listen(state->server_fd, 10) < 0) {
 		perror("listening to socket failed");
@@ -153,7 +153,7 @@ s32 server_listen(ServerState* state) {
 	return 0;
 }
 
-void server_process_request(ServerState* state, s32 client_fd) {
+void server_process_request(ServerState* state, i32 client_fd) {
 	
 	HttpContext context = { .client_fd = client_fd };
 	buffer_init(&context.read_buffer);
@@ -185,7 +185,7 @@ void server_accept_loop(ServerState* state) {
 		struct sockaddr_in client_addr = {0};
 		socklen_t client_addr_len = sizeof(client_addr);
 
-		s32 client_fd = accept(state->server_fd, (struct sockaddr*)&client_addr, &client_addr_len);
+		i32 client_fd = accept(state->server_fd, (struct sockaddr*)&client_addr, &client_addr_len);
 		if (client_fd < 0) continue;
 
 		server_process_request(state, client_fd);

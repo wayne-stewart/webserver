@@ -17,7 +17,7 @@ const HttpStatusCode STATUS_CODES[] = {
 
 const char* http_get_status_code_message(int status_code)
 {
-	for(s32 i = 0; i < ARRAY_SIZE(STATUS_CODES); i++) {
+	for(i32 i = 0; i < ARRAY_SIZE(STATUS_CODES); i++) {
 		if (STATUS_CODES[i].status_code == status_code) {
 			return STATUS_CODES[i].status_message;
 		}

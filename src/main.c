@@ -24,11 +24,13 @@
 #include <errno.h>
 
 #define PORT 8080
+#define WWWROOT "./www"
 #define BUFFER_SIZE 4084 /* 4096 - 12 ( 3 u32 integers ) */
+#define PATH_BUFFER_SIZE 1024
 
 #define u32 uint32_t
-#define s32 int32_t
-#define ARRAY_SIZE(array_name) ((s32)(sizeof(array_name) / sizeof(array_name[0])))
+#define i32 int32_t
+#define ARRAY_SIZE(array_name) ((i32)(sizeof(array_name) / sizeof(array_name[0])))
 
 #include "http/content_types.c"
 #include "http/status_codes.c"

@@ -2,8 +2,8 @@
 typedef struct Buffer { 
 	char	data[BUFFER_SIZE];
 	u32 	reserved; 	// always set to 0 to act as buffer data sentinel
-	s32 	size;		// the size of the data
-	s32 	length;		// the amount of bytes written into data
+	i32 	size;		// the size of the data
+	i32 	length;		// the amount of bytes written into data
 } Buffer;
 
 void buffer_init(Buffer* buffer) {
@@ -17,13 +17,13 @@ void buffer_init(Buffer* buffer) {
 	returns -1 if no data was written
 	returns bytes written if data was partially written
 */
-s32 buffer_writef(Buffer* buffer, const char* format, ...) {
+i32 buffer_writef(Buffer* buffer, const char* format, ...) {
 	va_list args;
 	va_start(args, format);
 	char* data = buffer->data + buffer->length;
-	s32 size = buffer->size - buffer->length;
+	i32 size = buffer->size - buffer->length;
 	if (size == 0) return -1;
-	s32 written = vsnprintf(data, size, format, args);
+	i32 written = vsnprintf(data, size, format, args);
 	buffer->length += written;
 	if (written > 0 && written < size) return 0;
 	va_end(args);
@@ -41,9 +41,9 @@ typedef struct HttpHeaders {
  * returns 0 if headers don't fit into the buffer
  * returns 1 if headers were written successfully
  */
-s32 http_write_headers(
+i32 http_write_headers(
 	Buffer* buffer,
-	s32 status_code,
+	i32 status_code,
 	HttpHeaders* headers) {
 
 	// status line

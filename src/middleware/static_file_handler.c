@@ -7,19 +7,19 @@
  * return value is a file descriptor.
  * return -1 if file cannot be found.
  * return -2 if a 302 should be sent with appended / */
-int middleware_static_file_try_open(HttpContext* context, char* path_buffer, s32 path_buffer_length) {
+int middleware_static_file_try_open(HttpContext* context, char* path_buffer, i32 path_buffer_length) {
 		
-	s32 uri_length = strlen(context->request.uri);
-	s32 path_length = 0;
+	i32 uri_length = strlen(context->request.uri);
+	i32 path_length = 0;
 
 	// if the final character is a slash try to open
 	// the default index.html file in the directory
 	// we know from the regex uri validation that the first
 	// character will always be a slash
 	if (context->request.uri[uri_length - 1] == '/') {
-		path_length = snprintf(path_buffer, path_buffer_length, ".%sindex.html", context->request.uri);
+		path_length = snprintf(path_buffer, path_buffer_length, "%s%sindex.html", WWWROOT, context->request.uri);
 	} else {
-		path_length = snprintf(path_buffer, path_buffer_length, ".%s", context->request.uri);
+		path_length = snprintf(path_buffer, path_buffer_length, "%s%s", WWWROOT, context->request.uri);
 	}
 
 	// path was greater than the buffer so return error
@@ -27,9 +27,9 @@ int middleware_static_file_try_open(HttpContext* context, char* path_buffer, s32
 
 	// tolower all characters in the path
 	// all served files should be lower case
-	for(s32 i = 0; path_buffer[i] != '\0'; i++) {
-		path_buffer[i] = tolower(path_buffer[i]);
-	}
+	//for(i32 i = 0; path_buffer[i] != '\0'; i++) {
+	//	path_buffer[i] = tolower(path_buffer[i]);
+	//}
 
 	// path could not be found as a file or dir so return error
 	struct stat stat_buffer;
@@ -53,13 +53,13 @@ int middleware_static_file_try_open(HttpContext* context, char* path_buffer, s32
 
 void middleware_static_file_serve(HttpContext* context)
 {
-	char path_buffer[1024] = {0};
-	s32 path_length = ARRAY_SIZE(path_buffer);
-	s32 path_length_minus_2 = ARRAY_SIZE(path_buffer) - 2;
-	s32 path_length_minus_1 = ARRAY_SIZE(path_buffer) - 1;
+	char path_buffer[PATH_BUFFER_SIZE] = {0};
+	i32 path_length = ARRAY_SIZE(path_buffer);
+	i32 path_length_minus_2 = ARRAY_SIZE(path_buffer) - 2;
+	i32 path_length_minus_1 = ARRAY_SIZE(path_buffer) - 1;
 
 	// -2 on the path buffer to make sure there is room for / and a trailing 0
-	s32 file_fd = middleware_static_file_try_open(context, path_buffer, path_length_minus_2);
+	i32 file_fd = middleware_static_file_try_open(context, path_buffer, path_length_minus_2);
 	
 	if (file_fd == -1) { 
 		send_404(context);
