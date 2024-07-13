@@ -1,17 +1,27 @@
 .DEFAULT_GOAL := build
 
+OUTROOT = build
 CFLAGS = -Werror -Wall -Wextra -Wpedantic -Wfatal-errors
 
-build:
-	gcc src/main.c -o webserver $(CFLAGS) -O3
+build: make_dir
+	gcc src/main.c -o $(OUTROOT)/webserver $(CFLAGS) -O3
 
 run: build
-	./webserver
-
-debug-build:
-	gcc src/main.c -o webserver-debug $(CFLAGS) -Og -g
+	$(OUTROOT)/webserver
 
 debug: debug-build
-	gdb webserver-debug
+	gdb $(OUTROOT)/webserver-debug
+
+test: test-build
+	$(OUTROOT)/test
+
+debug-build: make_dir
+	gcc src/main.c -o $(OUTROOT)/webserver-debug $(CFLAGS) -Og -g
+
+test-build: make_dir
+	gcc src/test.c -o $(OUTROOT)/test
+
+make_dir:
+	mkdir -p $(OUTROOT)
 
 
