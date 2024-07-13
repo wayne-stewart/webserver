@@ -21,6 +21,7 @@
 #include <fcntl.h>
 #include <ctype.h>
 #include <signal.h>
+#include <errno.h>
 
 #define PORT 8080
 #define BUFFER_SIZE 4084 /* 4096 - 12 ( 3 u32 integers ) */
@@ -38,6 +39,12 @@
 #include "middleware/error_handler.c"
 #include "middleware/static_file_handler.c"
 
+//void (*accept_connection)(ServerState*, HttpContext*);
+
+/*void accept_connection(ServerState* state, HttpContext* context) {
+	
+}*/
+
 int main() //int argc, char **argv)
 {
 	ServerState state = {0};
@@ -50,6 +57,7 @@ int main() //int argc, char **argv)
 	server_add_middleware(&state, &static_file_middleware);
 
 	server_run(&state);
+	
 	server_destroy(&state);
 	
 	return 0;
