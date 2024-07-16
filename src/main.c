@@ -1,20 +1,14 @@
 
-/***********************************************
- * Not for production
- * This web server is intended for development
- * and experimentation.
- *
- * Build and Run
- * gcc main.c & ./a.out
- ***********************************************/
-
+#define _GNU_SOURCE
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/epoll.h>
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdarg.h>
+#include <stdlib.h>
 #include <regex.h>
 #include <string.h>
 #include <unistd.h>
@@ -27,10 +21,12 @@
 #define WWWROOT "./www"
 #define BUFFER_SIZE 4084 /* 4096 - 12 ( 3 u32 integers ) */
 #define PATH_BUFFER_SIZE 1024
+#define MAX_CONNECTIONS 10
 
 #define u32 uint32_t
 #define i32 int32_t
 #define ARRAY_SIZE(array_name) ((i32)(sizeof(array_name) / sizeof(array_name[0])))
+#define LOG(msg, ...) printf(msg "\n", ##__VA_ARGS__)
 
 #include "http/content_types.c"
 #include "http/status_codes.c"
@@ -40,12 +36,6 @@
 #include "server.c"
 #include "middleware/error_handler.c"
 #include "middleware/static_file_handler.c"
-
-//void (*accept_connection)(ServerState*, HttpContext*);
-
-/*void accept_connection(ServerState* state, HttpContext* context) {
-	
-}*/
 
 int main() //int argc, char **argv)
 {
