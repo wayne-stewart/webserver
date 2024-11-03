@@ -17,7 +17,7 @@ typedef enum HttpContextState {
 	HttpContextState_ReadingDone,
 	HttpContextState_Sending,
 	HttpContextState_Complete
-};
+} HttpContextState;
 
 typedef struct HttpContext {
 	Buffer read_buffer;

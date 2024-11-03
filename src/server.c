@@ -210,7 +210,7 @@ void server_process_request_nonblocking(ServerState* state, i32 client_fd) {
 	
 	HttpContext* context = 0;
 	for(i32 i = 0; i < ARRAY_SIZE(state->context_pool); i++) {
-		if (state->context_pool[i].client_fd = client_fd) {
+		if (state->context_pool[i].client_fd == client_fd) {
 			context = &state->context_pool[i];
 			break;
 		}
@@ -220,7 +220,7 @@ void server_process_request_nonblocking(ServerState* state, i32 client_fd) {
 		for(i32 i = 0; i < ARRAY_SIZE(state->context_pool); i++) {
 			if (state->context_pool[i].client_fd == 0) {
 				context = &state->context_pool[i];
-				memset(context, 0, sizeof(context));
+				memset(context, 0, sizeof(*context));
 				context->client_fd = client_fd;
 				buffer_init(&context->read_buffer);
 				buffer_init(&context->write_buffer);
@@ -238,22 +238,22 @@ void server_process_request_nonblocking(ServerState* state, i32 client_fd) {
 	read_request(state, context);
 
 	if (context->state == HttpContextState_ReadingDone) {
-		state->middleware->run(state, &context, state->middleware->next);
+		state->middleware->run(state, context, state->middleware->next);
 	}
 	else if (context->state == HttpContextState_Complete) {
-		if (context.response.status_code == 400) {
-			send_400(&context);
+		if (context->response.status_code == 400) {
+			send_400(context);
 		}
 	
-		if (context.request.uri) {
-			LOG("%d %s %s", context.response.status_code, context.request.method, context.request.uri);
+		if (context->request.uri) {
+			LOG("%d %s %s", context->response.status_code, context->request.method, context->request.uri);
 		}
 		else {
 			LOG("Could not parse request line");
 		}
 
-		close(context.client_fd);
-		context.client_fd = 0;
+		close(context->client_fd);
+		context->client_fd = 0;
 	}
 }
 
