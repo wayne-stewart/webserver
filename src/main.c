@@ -1,21 +1,5 @@
 
-#define _GNU_SOURCE
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/epoll.h>
-#include <arpa/inet.h>
-#include <stdio.h>
-#include <stdint.h>
-#include <stdarg.h>
-#include <stdlib.h>
-#include <regex.h>
-#include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <ctype.h>
-#include <signal.h>
-#include <errno.h>
+#include "external.h"
 
 #define PORT 8080
 #define WWWROOT "./www"
@@ -23,19 +7,7 @@
 #define PATH_BUFFER_SIZE 1024
 #define MAX_CONNECTIONS 10
 
-#define u32 uint32_t
-#define i32 int32_t
-#define ARRAY_SIZE(array_name) ((i32)(sizeof(array_name) / sizeof(array_name[0])))
-#define LOG(msg, ...) printf(msg "\n", ##__VA_ARGS__)
-
-#include "http/content_types.c"
-#include "http/status_codes.c"
-#include "http/headers.c"
-#include "http/context.c"
-#include "http/send.c"
-#include "server.c"
-#include "middleware/error_handler.c"
-#include "middleware/static_file_handler.c"
+#include "internal.h"
 
 int main() //int argc, char **argv)
 {
