@@ -4,9 +4,9 @@
 */
 
 
-void middleware_error_handler(ServerState* state, HttpContext* context, MiddlewareHandler* next) {
+void middleware_error_handler(ServerState* state, HttpContext* context, Middleware* next) {
 	if (next) {
-		next->run(state, context, next->next);
+		next->handler(state, context, next->next);
 		if (context->response.status_code >= 400) {
 			// send pretty error page
 		}

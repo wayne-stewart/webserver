@@ -10,16 +10,18 @@ typedef struct CompiledRegex {
 	regex_t end_of_headers;
 } CompiledRegex;
 
-typedef struct MiddlewareHandler MiddlewareHandler;
+typedef struct Middleware Middleware;
 typedef struct ServerState ServerState;
 typedef struct epoll_event epoll_event;
 typedef struct sockaddr sockaddr;
 typedef struct sockaddr_in sockaddr_in;
+typedef void (*MiddlewareHandler)(ServerState*, HttpContext*, Middleware*);
 
-typedef struct MiddlewareHandler {
-	struct MiddlewareHandler* next;
-	void (*run)(ServerState*, HttpContext*, MiddlewareHandler*);
-} MiddlewareHandler;
+typedef struct Middleware {
+	struct Middleware* next;
+	MiddlewareHandler handler;
+} Middleware;
+
 
 typedef struct ServerState {
 	i32 running;
@@ -28,7 +30,7 @@ typedef struct ServerState {
 	epoll_event epoll_events[MAX_CONNECTIONS];
 	HttpContext context_pool[MAX_CONNECTIONS];
 	CompiledRegex regex;
-	MiddlewareHandler* middleware;
+	Middleware* middleware;
 } ServerState;
 
 i32 read_request(ServerState* state, HttpContext* context)
@@ -120,13 +122,13 @@ void server_destroy(ServerState* state) {
 	}
 }
 
-void server_add_middleware(ServerState* state, MiddlewareHandler* handler) {
+void server_add_middleware(ServerState* state, Middleware* middleware) {
 	if (state->middleware) {
-		MiddlewareHandler* parent = state->middleware;
+		Middleware* parent = state->middleware;
 		while (parent->next) parent = parent->next;
-		parent->next =  handler;
+		parent->next =  middleware;
 	} else {
-		state->middleware = handler;
+		state->middleware = middleware;
 	}
 }
 
@@ -189,7 +191,7 @@ void server_process_request(ServerState* state, i32 client_fd) {
 	buffer_init(&context.write_buffer);
 
 	if (read_request(state, &context)) {
-		state->middleware->run(state, &context, state->middleware->next);
+		state->middleware->handler(state, &context, state->middleware->next);
 	}
 	else if (context.response.status_code == 400) {
 		send_400(&context);
@@ -238,7 +240,7 @@ void server_process_request_nonblocking(ServerState* state, i32 client_fd) {
 	read_request(state, context);
 
 	if (context->state == HttpContextState_ReadingDone) {
-		state->middleware->run(state, context, state->middleware->next);
+		state->middleware->handler(state, context, state->middleware->next);
 	}
 	else if (context->state == HttpContextState_Complete) {
 		if (context->response.status_code == 400) {

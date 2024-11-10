@@ -87,9 +87,9 @@ void middleware_static_file_serve(HttpContext* context)
 	TODO: try caching the file so we don't have to stream from disk
 		  as often.
 */
-void middleware_static_file_handler(ServerState* state, HttpContext* context, MiddlewareHandler* next) {
+void middleware_static_file_handler(ServerState* state, HttpContext* context, Middleware* next) {
 	if (next) {
-		next->run(state, context, next->next);
+		next->handler(state, context, next->next);
 	}
 	if (context->response.status_code == 0) {
 		middleware_static_file_serve(context);		
