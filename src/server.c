@@ -6,6 +6,7 @@
 typedef struct CompiledRegex {
 	regex_t request_line;
 	regex_t uri_double_dots;
+	regex_t uri_dotfiles;
 	regex_t uri_valid_chars;
 	regex_t end_of_headers;
 } CompiledRegex;
@@ -61,7 +62,7 @@ i32 http_validate_url(ServerState* state, HttpContext* context) {
 
 	// if double dots are found, request validation fails
 	if (regexec(&state->regex.uri_double_dots, context->request.uri, 0, 0, 0) == 0) {
-		LOG("request.uri had double dots (..)");
+		LOG("request.uri has double dots (..)");
 		context->response.status_code = 400;
 		return 1;
 	}
@@ -69,6 +70,13 @@ i32 http_validate_url(ServerState* state, HttpContext* context) {
 	// make sure there are no unexpected characters in the uri
 	if (regexec(&state->regex.uri_valid_chars, context->request.uri, 0, 0, 0) == REG_NOMATCH) {
 		LOG("request.uri has unexpected chars");
+		context->response.status_code = 400;
+		return 1;
+	}
+
+	// make sure the client is not trying to access hidden files (dotfiles)
+	if (regexec(&state->regex.uri_dotfiles, context->request.uri, 0, 0, 0) == 0) {
+		LOG("request.uri client attempt to access dotfile");
 		context->response.status_code = 400;
 		return 1;
 	}
@@ -143,6 +151,7 @@ i32 read_request(ServerState* state, HttpContext* context)
 void server_init_regex(ServerState* state) {
 	regcomp(&state->regex.request_line, "^(GET) (/[^ ]*) HTTP/1.1\r\n", REG_EXTENDED);
 	regcomp(&state->regex.uri_double_dots, "\\.\\.", REG_EXTENDED);
+	regcomp(&state->regex.uri_dotfiles, "/\\.", REG_EXTENDED);
 	regcomp(&state->regex.uri_valid_chars, "^[0-9a-zA-Z/_\\.-]+$", REG_EXTENDED);
 	regcomp(&state->regex.end_of_headers, "\r\n\r\n", REG_EXTENDED);
 }
