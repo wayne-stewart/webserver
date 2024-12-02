@@ -22,7 +22,6 @@ typedef struct Middleware {
 	MiddlewareHandler handler;
 } Middleware;
 
-
 typedef struct ServerState {
 	i32 running;
 	i32 server_fd;
@@ -32,6 +31,50 @@ typedef struct ServerState {
 	CompiledRegex regex;
 	Middleware* middleware;
 } ServerState;
+
+// Return 0 if valid
+i32 http_validate_url(ServerState* state, HttpContext* context) {
+	
+	if (context->request.uri == 0) {
+		LOG("request.uri is not initialized");
+		context->response.status_code = 400;
+		return 1;
+	}
+
+	i32 url_len = strnlen(context->request.uri, PATH_BUFFER_SIZE);
+	if (url_len == 0) {
+		LOG("request.uri has length 0");
+		context->response.status_code = 400;
+		return 1;
+	}
+	else if (url_len == PATH_BUFFER_SIZE) {
+		LOG("request.uri is greater than %d", PATH_BUFFER_SIZE);
+		context->response.status_code = 400;
+		return 1;
+	}
+
+	if (context->request.uri[0] != '/') {
+		LOG("request.uri does not start with '/'");
+		context->response.status_code = 400;
+		return 1;
+	}
+
+	// if double dots are found, request validation fails
+	if (regexec(&state->regex.uri_double_dots, context->request.uri, 0, 0, 0) == 0) {
+		LOG("request.uri had double dots (..)");
+		context->response.status_code = 400;
+		return 1;
+	}
+
+	// make sure there are no unexpected characters in the uri
+	if (regexec(&state->regex.uri_valid_chars, context->request.uri, 0, 0, 0) == REG_NOMATCH) {
+		LOG("request.uri has unexpected chars");
+		context->response.status_code = 400;
+		return 1;
+	}
+
+	return 0;
+}
 
 i32 read_request(ServerState* state, HttpContext* context)
 {
@@ -90,26 +133,14 @@ i32 read_request(ServerState* state, HttpContext* context)
 	context->request.method = context->read_buffer.data + rl_matches[1].rm_so;
 	context->request.uri = context->read_buffer.data + rl_matches[2].rm_so;
 
-	// if double dots are found, request validation fails
-	if (regexec(&state->regex.uri_double_dots, context->request.uri, 0, 0, 0) == 0) {
-		LOG("request line had double dots (..)");
-		context->response.status_code = 400;
-		return 0;
-	}
-
-	// make sure there are no unexpected characters in the uri
-	if (regexec(&state->regex.uri_valid_chars, context->request.uri, 0, 0, 0) == REG_NOMATCH) {
-		LOG("unexpected chars in request line");
-		context->response.status_code = 400;
-		return 0;
-	}
+	if (http_validate_url(state, context)) return 0;
 
 	// TODO: separate path from query string and validate chars in both seprately
 
 	return 1;
 }
 
-void server_init(ServerState* state) {
+void server_init_regex(ServerState* state) {
 	regcomp(&state->regex.request_line, "^(GET) (/[^ ]*) HTTP/1.1\r\n", REG_EXTENDED);
 	regcomp(&state->regex.uri_double_dots, "\\.\\.", REG_EXTENDED);
 	regcomp(&state->regex.uri_valid_chars, "^[0-9a-zA-Z/_\\.-]+$", REG_EXTENDED);

@@ -19,7 +19,7 @@ debug-build: make_dir
 	gcc src/main.c -o $(OUTROOT)/webserver-debug $(CFLAGS) -Og -g
 
 test-build: make_dir
-	gcc src/test.c -o $(OUTROOT)/test
+	gcc src/main_test.c -DTEST_BUILD -o $(OUTROOT)/test
 
 make_dir:
 	mkdir -p $(OUTROOT)
