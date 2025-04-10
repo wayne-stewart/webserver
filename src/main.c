@@ -1,6 +1,7 @@
 #define GNUSOURCE
 #include <stdio.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <unistd.h>
@@ -15,21 +16,90 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#define u8	uint8_t
+#define s16 int16_t
+#define s32 int32_t
+#define s64 int64_t
+
 #define PORT 80
 #define ACCEPT_BACKLOG 20
-#define EV_SIZE 20
-#define MAX_CONNECTIONS (EV_SIZE - 1)
+#define MAX_CONNECTIONS 100
+#define EVENT_QUEUE_SIZE ((MAX_CONNECTIONS * 2) + 10)
+#define HTTP_BUFFER_SIZE 4096
+
+typedef struct {
+	int socket_fd;
+	int keepalive_ts;
+} SocketConnection;
+
+typedef enum HTTP_VERB {
+	HTTP_VERB_NOT_SET,
+	HTTP_VERB_GET,
+	HTTP_VERB_POST,
+	HTTP_VERB_HEAD,
+} HTTP_VERB;
+
+typedef enum HTTP_CONTENT_TYPE {
+	HTTP_CONTENT_TYPE_NOT_SET,
+	HTTP_CONTENT_TYPE_TEXT,
+	HTTP_CONTENT_TYPE_CSS,
+	HTTP_CONTENT_TYPE_JS,
+	HTTP_CONTENT_TYPE_HTML,
+} HTTP_CONTENT_TYPE;
+
+typedef struct {
+	s64 length;
+	u8* data;
+} String;
+
+typedef struct {
+	s64 length;
+	s64 size;
+	u8* data;
+} Buffer;
+
+typedef struct {
+	HTTP_CONTENT_TYPE content_type;
+	s64 content_length;
+	s32 keep_alive;
+} HttpHeaders;
+
+typedef struct {
+	HttpHeaders headers;
+	Buffer buffer;
+	HTTP_VERB verb;
+	String path;
+	String query_string;
+	String http_version;
+	String content;
+} HttpRequest;
+
+typedef struct {
+	s32 status_code;
+	HttpHeaders headers;
+	Buffer buffer;
+} HttpResponse;
+
+typedef struct {
+	int start_ts;
+	int end_ts;
+	int keepalive_ts;
+	int bytes_in;
+	int bytes_out;
+} HttpMetrics;
 
 typedef struct HttpContext {
 	int client_socket;
-	char c;
+	HttpMetrics metrics;
+	HttpRequest request;
+	HttpResponse response;
 } HttpContext;
 
 typedef struct AsyncContext {
 	int kqueue;
 	int size;
 	int count;
-	struct kevent changed[EV_SIZE];
+	struct kevent changed[EVENT_QUEUE_SIZE];
 } AsyncContext;
 
 typedef struct ServerContext {
@@ -40,10 +110,16 @@ typedef struct ServerContext {
 } ServerContext;
 
 #define ARRAY_SIZE(x) ((sizeof(x)) / (sizeof((x)[0])))
-#define LOG(...) printf(__VA_ARGS__);
-#define FATAL(...) printf(__VA_ARGS__); exit(EXIT_FAILURE);
-#define ASSERT_FATAL(condition, ...) if (condition) { \
-	printf(__VA_ARGS__); \
+#define LOG(str) printf(str "\n")
+#define LOGf(fmt, ...) printf(fmt "\n", __VA_ARGS__)
+#define DEBUG(str) printf(str "\n")
+#define DEBUGf(fmt, ...) printf(fmt "\n", __VA_ARGS__)
+#define ASSERT(condition, str) if (condition) { \
+	printf(str "\n"); \
+	exit(EXIT_FAILURE); \
+}
+#define ASSERTf(condition, fmt, ...) if (condition) { \
+	printf(fmt "\n", __VA_ARGS__); \
 	exit(EXIT_FAILURE); \
 }
 
@@ -60,12 +136,13 @@ void server_write_handler(ServerContext *ctx, int client_fd);
 HttpContext* server_find_http_context(ServerContext *ctx, int client_fd);
 HttpContext* server_create_http_context(ServerContext *ctx);
 void server_remove_http_context(ServerContext *ctx, int client_fd);
+void http_parse_request_header(HttpContext *ctx);
 
 int main(void) {
 
 	ServerContext server_context = { 
 		.http_port = PORT,
-		.async_context = { .size = EV_SIZE }
+		.async_context = { .size = EVENT_QUEUE_SIZE }
 	};
 
 	server_bind(&server_context);
@@ -73,7 +150,7 @@ int main(void) {
 	server_listen(&server_context);
 
 	server_context.async_context.kqueue = kqueue();
-	ASSERT_FATAL(server_context.async_context.kqueue == -1, "kqueue()\n");
+	ASSERT(server_context.async_context.kqueue == -1, "kqueue()");
 	
 	server_timer(&server_context, 1, 5000);
 	server_socket_monitor(&server_context, server_context.listen_socket);
@@ -105,12 +182,12 @@ void server_bind(ServerContext *ctx) {
 	char s_port[20] = {0};
 	snprintf(s_port, ARRAY_SIZE(s_port), "%d", ctx->http_port);
 	int status = getaddrinfo(NULL, s_port, &hints, &myaddr);
-	ASSERT_FATAL(status != 0, "getaddrinfo: %s\n", gai_strerror(status));
+	ASSERTf(status != 0, "getaddrinfo: %s", gai_strerror(status));
 	ctx->listen_socket = socket(
 		myaddr->ai_family, 
 		myaddr->ai_socktype, 
 		myaddr->ai_protocol);
-	ASSERT_FATAL(ctx->listen_socket == -1, "server socket: %s\n", strerror(errno));
+	ASSERTf(ctx->listen_socket == -1, "server socket: %s", strerror(errno));
 	int flags = fcntl(ctx->listen_socket, F_GETFL, 0);
 	flags = flags & ~O_NONBLOCK & ~FD_CLOEXEC;
 	fcntl(ctx->listen_socket, F_SETFL, flags);
@@ -118,7 +195,7 @@ void server_bind(ServerContext *ctx) {
 		ctx->listen_socket,
 		myaddr->ai_addr,
 		myaddr->ai_addrlen);
-	ASSERT_FATAL(bind_result == -1, "bind: %s\n", strerror(errno));
+	ASSERTf(bind_result == -1, "bind: %s", strerror(errno));
 	int yes = 1;
 	int opt_result = setsockopt(
 		ctx->listen_socket, 
@@ -126,12 +203,12 @@ void server_bind(ServerContext *ctx) {
 		SO_REUSEADDR,
 		&yes,
 		sizeof yes);
-	ASSERT_FATAL(opt_result == -1, "set re-use socket: %s\n", strerror(errno));
+	ASSERTf(opt_result == -1, "set re-use socket: %s", strerror(errno));
 }
 
 void server_listen(ServerContext *ctx) {
 	int listen_result = listen(ctx->listen_socket, ACCEPT_BACKLOG);
-	ASSERT_FATAL(listen_result == -1, "listen: %s\n", strerror(errno));
+	ASSERTf(listen_result == -1, "listen: %s", strerror(errno));
 }
 
 void server_loop(ServerContext *ctx) {
@@ -140,16 +217,16 @@ void server_loop(ServerContext *ctx) {
 	for(;;) {
 		int change_count = kevent(actx->kqueue, 0, 0, actx->changed, actx->size, 0);
 
-		ASSERT_FATAL(change_count < 0, "kevent()");
+		ASSERT(change_count < 0, "kevent()");
 
 		for(int i = 0; i < change_count; i++) {
 			struct kevent *event = &actx->changed[i];
 			if (event->flags & EV_EOF) {
-				LOG("Event Id: %lu, Disconnected\n", event->ident);
+				LOGf("Event Id: %lu, Disconnected", event->ident);
 				server_socket_unmonitor(ctx, event->ident);
 			}
 			else if (event->flags & EV_ERROR) {
-				LOG("Event Id: %lu Error: %s\n", event->ident, strerror(event->data));
+				LOGf("Event Id: %lu Error: %s", event->ident, strerror(event->data));
 				server_socket_unmonitor(ctx, event->ident);
 				close(event->ident);
 			}
@@ -172,10 +249,10 @@ void server_loop(ServerContext *ctx) {
 }
 
 void server_socket_monitor(ServerContext *ctx, int socket_fd) {
-	struct kevent evset[2] = {0};
+	struct kevent evset[1] = {0};
 	EV_SET(&evset[0], socket_fd, EVFILT_READ, EV_ADD, 0, 0, 0);
-	EV_SET(&evset[1], socket_fd, EVFILT_WRITE, EV_ADD, 0, 0, 0);
-	kevent(ctx->async_context.kqueue, evset, 2, 0, 0, 0);
+	//EV_SET(&evset[1], socket_fd, EVFILT_WRITE, EV_ADD, 0, 0, 0);
+	kevent(ctx->async_context.kqueue, evset, 1, 0, 0, 0);
 }
 
 void server_socket_unmonitor(ServerContext *ctx, int socket_fd) {
@@ -199,7 +276,7 @@ void server_timer_handler(ServerContext *ctx, int timer_id) {
 	// pid > 0 ( IN PARENT PROCESS ) is id of child process
 	pid_t pid;
 	if ((pid = fork()) < 0) { 
-		FATAL("fork()\n");
+		LOG("fork() failed");
 	}
 	else if (pid == 0) {
 		execlp("date", "date", (char*)0);
@@ -211,7 +288,7 @@ void server_listen_handler(ServerContext *ctx) {
 	socklen_t addr_size = sizeof(addr);
 	int client_fd = accept(ctx->listen_socket, (struct sockaddr*)&addr, &addr_size);
 	if (client_fd > 0) {
-		LOG("client connected: %d\n", client_fd);
+		LOGf("client connected: %d", client_fd);
 		int set = 1;
 		setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE, (void*)&set, sizeof(int));
 		HttpContext *http_context = server_create_http_context(ctx);
@@ -229,25 +306,34 @@ void server_listen_handler(ServerContext *ctx) {
 	}
 }
 
-void server_read_handler(ServerContext *ctx, int client_fd) {
-	(void)ctx;
-	char buffer[1024] = {0};
-	ssize_t r = read(client_fd, buffer, ARRAY_SIZE(buffer) - 1);
-	if (r == -1) {
-		if (errno == EAGAIN || errno == EWOULDBLOCK) {
-			LOG("READ EAGAIN\n");
+void server_read_handler(ServerContext* server_ctx, int client_fd) {
+	HttpContext* ctx = server_find_http_context(server_ctx, client_fd);
+	if (!ctx) {
+		LOG("ERROR: client_fd does not have a matching HttpContext!");
+		return;
+	}
+	int r = 1;
+	Buffer* buf = &ctx->request.buffer;
+	while (buf->length < buf->size && r > 0) { 
+		r = read(client_fd, buf->data + buf->length, buf->size - buf->length);
+		if (r == -1) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				DEBUG("READ EAGAIN");
+			}
+			else {
+				DEBUGf("READ FAILURE: %s", strerror(errno));
+			}
 		}
 		else {
-			LOG("READ FAILURE: %s\n", strerror(errno));
+			//ctx->activity_ts = 
+			buf->length += r;
+			DEBUGf("%s", buf->data);
 		}
-	}
-	else {
-		LOG("%s\n", buffer);
 	}
 }
 
 #define g_size 1000000
-#define g_bufsize 1000
+#define g_bufsize 4096
 int g_one = g_size;
 void server_write_handler(ServerContext *ctx, int client_fd) {
 	(void)ctx;
@@ -263,7 +349,7 @@ void server_write_handler(ServerContext *ctx, int client_fd) {
 	int iter_c = 0;
 	while(g_one > 0) {
 		if ((iter_c++) > max_iter) {
-			LOG("MAX ITER\n");
+			LOG("MAX ITER");
 			break;
 		}
 		int tosend = g_bufsize;
@@ -276,15 +362,15 @@ void server_write_handler(ServerContext *ctx, int client_fd) {
 		int sent = write(client_fd, buffer, tosend);
 		if (sent > 0) {
 			g_one -= sent;
-			LOG("SEND %d with %d remaining\n", sent, g_one);
+			LOGf("SEND %d with %d remaining", sent, g_one);
 		}
 		else if (sent == -1) {
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
-				LOG("SEND EAGAIN\n");
+				LOG("SEND EAGAIN");
 				break;
 			}
 			else {
-				LOG("SEND ERROR: %s\n", strerror(errno));
+				LOGf("SEND ERROR: %s", strerror(errno));
 				close(client_fd);
 				break;
 			}
@@ -301,10 +387,23 @@ HttpContext* server_find_http_context(ServerContext *ctx, int client_fd) {
 	return 0;
 }
 
+void buffer_init(Buffer* buf, s64 size) {
+	if (buf->data) {
+		memset(buf->data, 0, size);
+		buf->length = 0;
+	}
+	else {
+		buf->data = calloc(size, sizeof(u8));
+		buf->size = size;
+	}
+}
+
 HttpContext* server_create_http_context(ServerContext *ctx) {
 	HttpContext *http_context = server_find_http_context(ctx, 0);
 	if (http_context) {
 		memset(http_context, 0, sizeof(HttpContext));
+		buffer_init(&http_context->request.buffer, HTTP_BUFFER_SIZE);
+		buffer_init(&http_context->response.buffer, HTTP_BUFFER_SIZE);
 		return http_context;
 	}
 	return 0;
@@ -317,6 +416,45 @@ void server_remove_http_context(ServerContext *ctx, int client_fd) {
 	};
 }
 
+s32 index_of_chs(String* str, s64 str_ofs, const char* chs, u8 chs_len) {
+	if (chs_len == 1) {
+		u8 ch = chs[0];
+		for (s64 i = str_ofs; i < str->length; i++) {
+			if (ch == str->data[i]) {
+				return i;
+			}
+		}
+	}
+	for(s64 i = str_ofs; i < str->length; i++) {
+		for(u8 j = 0; j < chs_len; j++) {
+			if (chs[j] == str->data[i]) {
+				return i;
+			}
+		}
+	}
+	return -1;
+}
+bool starts_with_str(String* x, s64 x_ofs, const char* y, u8 y_len) { 
+	int len = x->length - x_ofs;
+	if (y_len > len) {
+		return false;
+	}
+	for (s64 i = x_ofs; i < x->length && i < y_len; i++) {
+		if (x->data[i] != y[i]) {
+			return false;
+		}
+	}
+	return true;
+}
+void http_parse_request_header(HttpContext *ctx) {
+	// GET /path_to_resource HTTP/1.1
+	Buffer* rbuf = &ctx->request.buffer;
+	String str = { .data = rbuf->data, .length = rbuf->length };
+	if (starts_with_str(&str, 0, "GET ", 4)) {
+		ctx->request.verb = HTTP_VERB_GET;
+		rbuf->pos += 4;
+	}
+}
 
 
 
