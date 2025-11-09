@@ -12,7 +12,8 @@ const HttpStatusCode STATUS_CODES[] = {
 	{ 403, "Forbidden" },
 	{ 404, "Not Found" },
 	{ 405, "Method Not Allowed" },
-	{ 500, "Internal Server Error" }
+	{ 500, "Internal Server Error" },
+	{ 503, "Service Unavailable" }
 };
 
 const char* http_get_status_code_message(int status_code)
